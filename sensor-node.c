@@ -17,6 +17,8 @@
 #define SENSOR_NODE_ID         (node_id)
 #define DISCOVERY_INTERVAL     (CLOCK_SECOND * 60)
 #define SENSOR_READ_INTERVAL   (CLOCK_SECOND * 60)
+#define VALVE_DURATION 60 // 1 minute
+
 
 /* Global variables */
 static uint16_t parent_id = 0xFFFF;

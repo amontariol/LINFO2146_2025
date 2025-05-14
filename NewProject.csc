@@ -182,26 +182,7 @@
       <skin>org.contikios.cooja.plugins.skins.UDGMVisualizerSkin</skin>
       <viewport>0.862293328338757 0.0 0.0 0.862293328338757 191.6733727873363 103.40146651723896</viewport>
     </plugin_config>
-    <bounds x="1" y="1" height="400" width="400" z="5" />
-  </plugin>
-  <plugin>
-    org.contikios.cooja.plugins.TimeLine
-    <plugin_config>
-      <mote>0</mote>
-      <mote>1</mote>
-      <mote>2</mote>
-      <mote>3</mote>
-      <mote>4</mote>
-      <mote>5</mote>
-      <mote>6</mote>
-      <mote>7</mote>
-      <mote>8</mote>
-      <showRadioRXTX />
-      <showRadioHW />
-      <showLEDs />
-      <zoomfactor>500.0</zoomfactor>
-    </plugin_config>
-    <bounds x="3" y="404" height="246" width="700" z="3" />
+    <bounds x="1" y="1" height="400" width="400" z="9" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.LogListener
@@ -210,15 +191,7 @@
       <formatted_time />
       <coloring />
     </plugin_config>
-    <bounds x="703" y="353" height="442" width="499" z="2" />
-  </plugin>
-  <plugin>
-    org.contikios.cooja.plugins.RadioLogger
-    <plugin_config>
-      <split>150</split>
-      <formatted_time />
-    </plugin_config>
-    <bounds x="701" y="3" height="300" width="500" z="4" />
+    <bounds x="454" y="3" height="792" width="748" z="7" />
   </plugin>
   <plugin>
     org.contikios.cooja.serialsocket.SerialSocketServer
@@ -227,7 +200,7 @@
       <port>60001</port>
       <bound>true</bound>
     </plugin_config>
-    <bounds x="404" y="294" height="116" width="362" />
+    <bounds x="8" y="406" height="116" width="362" z="8" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.Visualizer
@@ -240,8 +213,62 @@
       <skin>org.contikios.cooja.plugins.skins.AddressVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.LEDVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.MoteTypeVisualizerSkin</skin>
-      <viewport>0.9433621036711348 0.0 0.0 0.9433621036711348 118.61802264336946 95.35516133813279</viewport>
+      <viewport>1.630129715143721 0.0 0.0 1.630129715143721 105.43155389591797 83.88755469764318</viewport>
     </plugin_config>
     <bounds x="1" y="1" height="400" width="400" z="1" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>6</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="7" y="525" height="136" width="141" z="6" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>5</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="150" y="526" height="135" width="137" z="5" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>7</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="288" y="526" height="138" width="135" z="4" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>8</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="8" y="661" height="136" width="141" z="3" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>3</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="149" y="662" height="136" width="139" z="2" />
+  </plugin>
+  <plugin>
+    org.contikios.cooja.plugins.MoteInterfaceViewer
+    <mote_arg>4</mote_arg>
+    <plugin_config>
+      <interface>LEDs</interface>
+      <scrollpos>0,0</scrollpos>
+    </plugin_config>
+    <bounds x="289" y="664" height="133" width="136" />
   </plugin>
 </simconf>
