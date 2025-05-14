@@ -2,7 +2,6 @@
 <simconf version="2023090101">
   <simulation>
     <title>MyProject</title>
-    <speedlimit>2.0</speedlimit>
     <randomseed>123456</randomseed>
     <motedelay_us>1000000</motedelay_us>
     <radiomedium>
@@ -191,7 +190,7 @@
       <formatted_time />
       <coloring />
     </plugin_config>
-    <bounds x="454" y="3" height="792" width="748" z="7" />
+    <bounds x="454" y="3" height="792" width="748" />
   </plugin>
   <plugin>
     org.contikios.cooja.serialsocket.SerialSocketServer
@@ -215,7 +214,7 @@
       <skin>org.contikios.cooja.plugins.skins.MoteTypeVisualizerSkin</skin>
       <viewport>1.630129715143721 0.0 0.0 1.630129715143721 105.43155389591797 83.88755469764318</viewport>
     </plugin_config>
-    <bounds x="1" y="1" height="400" width="400" z="1" />
+    <bounds x="1" y="1" height="400" width="400" z="6" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -224,7 +223,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="7" y="525" height="136" width="141" z="6" />
+    <bounds x="7" y="525" height="136" width="141" z="7" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -233,7 +232,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="150" y="526" height="135" width="137" z="5" />
+    <bounds x="150" y="526" height="135" width="137" z="4" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -242,7 +241,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="288" y="526" height="138" width="135" z="4" />
+    <bounds x="288" y="526" height="138" width="135" z="5" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -251,7 +250,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="8" y="661" height="136" width="141" z="3" />
+    <bounds x="8" y="661" height="136" width="141" z="1" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -269,6 +268,6 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="289" y="664" height="133" width="136" />
+    <bounds x="289" y="664" height="133" width="136" z="3" />
   </plugin>
 </simconf>
