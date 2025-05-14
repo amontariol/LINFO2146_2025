@@ -179,7 +179,7 @@
       <skin>org.contikios.cooja.plugins.skins.GridVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.TrafficVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.UDGMVisualizerSkin</skin>
-      <viewport>0.862293328338757 0.0 0.0 0.862293328338757 191.6733727873363 103.40146651723896</viewport>
+      <viewport>1.6212232953753691 0.0 0.0 1.6212232953753691 57.514361259065794 89.36915667378041</viewport>
     </plugin_config>
     <bounds x="1" y="1" height="400" width="400" z="9" />
   </plugin>
@@ -212,9 +212,9 @@
       <skin>org.contikios.cooja.plugins.skins.AddressVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.LEDVisualizerSkin</skin>
       <skin>org.contikios.cooja.plugins.skins.MoteTypeVisualizerSkin</skin>
-      <viewport>1.630129715143721 0.0 0.0 1.630129715143721 105.43155389591797 83.88755469764318</viewport>
+      <viewport>1.1258495106773398 0.0 0.0 1.1258495106773398 116.63497309657343 139.06191435679193</viewport>
     </plugin_config>
-    <bounds x="1" y="1" height="400" width="400" z="6" />
+    <bounds x="1" y="1" height="400" width="400" z="1" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -232,7 +232,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="150" y="526" height="135" width="137" z="4" />
+    <bounds x="150" y="526" height="135" width="137" z="5" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -241,7 +241,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="288" y="526" height="138" width="135" z="5" />
+    <bounds x="288" y="526" height="138" width="135" z="6" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -250,7 +250,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="8" y="661" height="136" width="141" z="1" />
+    <bounds x="8" y="661" height="136" width="141" z="2" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -259,7 +259,7 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="149" y="662" height="136" width="139" z="2" />
+    <bounds x="149" y="662" height="136" width="139" z="3" />
   </plugin>
   <plugin>
     org.contikios.cooja.plugins.MoteInterfaceViewer
@@ -268,6 +268,6 @@
       <interface>LEDs</interface>
       <scrollpos>0,0</scrollpos>
     </plugin_config>
-    <bounds x="289" y="664" height="133" width="136" z="3" />
+    <bounds x="289" y="664" height="133" width="136" z="4" />
   </plugin>
 </simconf>

@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "sys/node-id.h"
+#include "sys/energest.h"
 
 #define LOG_MODULE "SensorNode"
 #define LOG_LEVEL LOG_LEVEL_INFO
@@ -18,11 +19,12 @@
 
 static uint16_t parent_id = 0xFFFF;
 static uint8_t hop_to_root = 0xFF;
-static uint16_t energy_level = 1000;
 
 PROCESS(sensor_node_process, "Sensor Node Process");
 PROCESS(discovery_process, "Discovery Process");
 PROCESS(data_process, "Data Process");
+PROCESS(energest_process, "Energest Process");
+
 AUTOSTART_PROCESSES(&sensor_node_process);
 
 static void send_discovery(void);
@@ -38,6 +40,7 @@ PROCESS_THREAD(sensor_node_process, ev, data)
   nullnet_set_input_callback(receive_callback);
   process_start(&discovery_process, NULL);
   process_start(&data_process, NULL);
+  process_start(&energest_process, NULL);
   leds_init();
 
   LOG_INFO("Sensor node %u started\n", SENSOR_NODE_ID);
@@ -45,6 +48,23 @@ PROCESS_THREAD(sensor_node_process, ev, data)
   PROCESS_END();
 }
 
+PROCESS_THREAD(energest_process, ev, data)
+{
+  static struct etimer timer;
+  PROCESS_BEGIN();
+  etimer_set(&timer, CLOCK_SECOND * 60); // every minute
+  while(1) {
+    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&timer));
+    energest_flush();
+    unsigned long cpu = energest_type_time(ENERGEST_TYPE_CPU);
+    unsigned long lpm = energest_type_time(ENERGEST_TYPE_LPM);
+    unsigned long tx = energest_type_time(ENERGEST_TYPE_TRANSMIT);
+    unsigned long rx = energest_type_time(ENERGEST_TYPE_LISTEN);
+    LOG_INFO("ENERGY: cpu %lu lpm %lu tx %lu rx %lu\n", cpu, lpm, tx, rx);
+    etimer_reset(&timer);
+  }
+  PROCESS_END();
+}
 PROCESS_THREAD(discovery_process, ev, data)
 {
   static struct etimer discovery_timer;
@@ -88,11 +108,18 @@ PROCESS_THREAD(data_process, ev, data)
 
 static void send_discovery(void)
 {
+
+  energest_flush();
+  unsigned long total = energest_type_time(ENERGEST_TYPE_CPU) +
+                        energest_type_time(ENERGEST_TYPE_LPM) +
+                        energest_type_time(ENERGEST_TYPE_TRANSMIT) +
+                        energest_type_time(ENERGEST_TYPE_LISTEN);
+  uint16_t energy_metric = (uint16_t)(0xFFFF - (total >> 8));
   static uint8_t discovery_msg[4];
   discovery_msg[0] = 1;
   discovery_msg[1] = SENSOR_NODE_ID;
   discovery_msg[2] = hop_to_root;
-  discovery_msg[3] = energy_level >> 8;
+  discovery_msg[3] = energy_metric >> 8;
 
   LOG_INFO("Sending discovery: id=%u, hop=%u, energy=%u\n",
            discovery_msg[1], discovery_msg[2], discovery_msg[3]);
@@ -136,18 +163,30 @@ static void receive_callback(const void *data, uint16_t len,
         uint8_t source_id = msg[1];
         uint8_t hop_count = msg[2];
         uint8_t energy = msg[3];
+
+        // Compute my own energy metric
+        energest_flush();
+        unsigned long my_total = energest_type_time(ENERGEST_TYPE_CPU) +
+                                energest_type_time(ENERGEST_TYPE_LPM) +
+                                energest_type_time(ENERGEST_TYPE_TRANSMIT) +
+                                energest_type_time(ENERGEST_TYPE_LISTEN);
+        uint16_t my_energy_metric = (uint16_t)(0xFFFF - (my_total >> 8));
+
         LOG_INFO("Received discovery from node %u (hop %u, energy %u)\n", 
-                 source_id, hop_count, energy);
+                source_id, hop_count, energy);
+        LOG_INFO("Parent selection: my_energy=%u, received_energy=%u, hop=%u, my_hop=%u\n",
+         my_energy_metric >> 8, energy, hop_count, hop_to_root);
         if(hop_count < hop_to_root || 
-           (hop_count == hop_to_root && energy > (energy_level >> 8))) {
+          (hop_count == hop_to_root && energy > (my_energy_metric >> 8))) {
           LOG_INFO("Better parent found! Old: %u (hop %u), New: %u (hop %u)\n",
-                   parent_id, hop_to_root, source_id, hop_count + 1);
+                  parent_id, hop_to_root, source_id, hop_count + 1);
           parent_id = source_id;
           hop_to_root = hop_count + 1;
           LOG_INFO("Selected new parent %u (hop count: %u)\n", 
-                   parent_id, hop_to_root);
+                  parent_id, hop_to_root);
         } else {
-          LOG_INFO("Not a better parent, ignoring\n");
+          LOG_INFO("Kept current parent %u (hop %u, my_energy=%u >= received_energy=%u)\n",
+           parent_id, hop_to_root, my_energy_metric >> 8, energy);
         }
       }
       break;
