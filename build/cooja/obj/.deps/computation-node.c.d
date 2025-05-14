@@ -33,7 +33,8 @@ build/cooja/obj/computation-node.o: computation-node.c \
  /home/lingi2146/contiki-ng/os/net/ipv6/uip.h \
  /home/lingi2146/contiki-ng/os/net/ipv6/uipopt.h \
  /home/lingi2146/contiki-ng/os/net/ipv6/uipbuf.h \
- /home/lingi2146/contiki-ng/os/net/ipv6/tcpip.h
+ /home/lingi2146/contiki-ng/os/net/ipv6/tcpip.h \
+ /home/lingi2146/contiki-ng/os/sys/node-id.h
 /home/lingi2146/contiki-ng/os/contiki.h:
 /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h:
 project-conf.h:
@@ -70,3 +71,4 @@ project-conf.h:
 /home/lingi2146/contiki-ng/os/net/ipv6/uipopt.h:
 /home/lingi2146/contiki-ng/os/net/ipv6/uipbuf.h:
 /home/lingi2146/contiki-ng/os/net/ipv6/tcpip.h:
+/home/lingi2146/contiki-ng/os/sys/node-id.h:

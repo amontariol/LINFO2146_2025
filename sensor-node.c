@@ -7,12 +7,14 @@
 #include "dev/leds.h"
 #include <string.h>
 #include <stdio.h>
+#include "sys/node-id.h"
+
 
 #define LOG_MODULE "SensorNode"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
 /* Configuration */
-#define SENSOR_NODE_ID         (linkaddr_node_addr.u8[0])
+#define SENSOR_NODE_ID         (node_id)
 #define DISCOVERY_INTERVAL     (CLOCK_SECOND * 60)
 #define SENSOR_READ_INTERVAL   (CLOCK_SECOND * 60)
 

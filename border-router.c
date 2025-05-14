@@ -5,6 +5,8 @@
 #include "sys/log.h"
 #include <string.h>
 #include <stdio.h>
+#include "sys/node-id.h"
+
 
 #define LOG_MODULE "BorderRouter"
 #define LOG_LEVEL LOG_LEVEL_INFO
