@@ -3,7 +3,7 @@ build/cooja/obj/simple-udp.o: \
  /home/lingi2146/contiki-ng/os/contiki-net.h \
  /home/lingi2146/contiki-ng/os/contiki.h \
  /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h \
- /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
+ project-conf.h /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
  /home/lingi2146/contiki-ng/os/sys/process.h \
  /home/lingi2146/contiki-ng/os/sys/pt.h \
  /home/lingi2146/contiki-ng/os/sys/lc.h \
@@ -72,6 +72,7 @@ build/cooja/obj/simple-udp.o: \
 /home/lingi2146/contiki-ng/os/contiki-net.h:
 /home/lingi2146/contiki-ng/os/contiki.h:
 /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h:
+project-conf.h:
 /home/lingi2146/contiki-ng/os/contiki-default-conf.h:
 /home/lingi2146/contiki-ng/os/sys/process.h:
 /home/lingi2146/contiki-ng/os/sys/pt.h:

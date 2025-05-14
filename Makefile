@@ -1,4 +1,5 @@
 CONTIKI = /home/lingi2146/contiki-ng
+PROJECT_CONF_PATH = ./project-conf.h
 
 # Define the project name
 CONTIKI_PROJECT = sensor-node computation-node border-router

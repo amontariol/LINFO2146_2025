@@ -3,7 +3,7 @@ build/cooja/obj/uiplib.o: /home/lingi2146/contiki-ng/os/net/ipv6/uiplib.c \
  /home/lingi2146/contiki-ng/os/net/ipv6/uipopt.h \
  /home/lingi2146/contiki-ng/os/contiki.h \
  /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h \
- /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
+ project-conf.h /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
  /home/lingi2146/contiki-ng/os/sys/process.h \
  /home/lingi2146/contiki-ng/os/sys/pt.h \
  /home/lingi2146/contiki-ng/os/sys/lc.h \
@@ -34,6 +34,7 @@ build/cooja/obj/uiplib.o: /home/lingi2146/contiki-ng/os/net/ipv6/uiplib.c \
 /home/lingi2146/contiki-ng/os/net/ipv6/uipopt.h:
 /home/lingi2146/contiki-ng/os/contiki.h:
 /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h:
+project-conf.h:
 /home/lingi2146/contiki-ng/os/contiki-default-conf.h:
 /home/lingi2146/contiki-ng/os/sys/process.h:
 /home/lingi2146/contiki-ng/os/sys/pt.h:

@@ -1,7 +1,7 @@
 build/cooja/obj/gpio-hal.o: /home/lingi2146/contiki-ng/os/dev/gpio-hal.c \
  /home/lingi2146/contiki-ng/os/contiki.h \
  /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h \
- /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
+ project-conf.h /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
  /home/lingi2146/contiki-ng/os/sys/process.h \
  /home/lingi2146/contiki-ng/os/sys/pt.h \
  /home/lingi2146/contiki-ng/os/sys/lc.h \
@@ -33,6 +33,7 @@ build/cooja/obj/gpio-hal.o: /home/lingi2146/contiki-ng/os/dev/gpio-hal.c \
  /home/lingi2146/contiki-ng/os/net/ipv6/tcpip.h
 /home/lingi2146/contiki-ng/os/contiki.h:
 /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h:
+project-conf.h:
 /home/lingi2146/contiki-ng/os/contiki-default-conf.h:
 /home/lingi2146/contiki-ng/os/sys/process.h:
 /home/lingi2146/contiki-ng/os/sys/pt.h:

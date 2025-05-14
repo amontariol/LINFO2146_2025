@@ -106,11 +106,17 @@ static void send_discovery(void)
   discovery_msg[1] = COMPUTATION_NODE_ID; /* Source ID */
   discovery_msg[2] = hop_to_root; /* Hop count to root */
   discovery_msg[3] = energy_level >> 8; /* Energy level (high byte) */
+
+  LOG_INFO("Sending discovery: type=%u, id=%u, hop=%u, energy=%u\n",
+         discovery_msg[0], discovery_msg[1], discovery_msg[2], discovery_msg[3]);
   
   /* Send message */
   nullnet_buf = discovery_msg;
   nullnet_len = sizeof(discovery_msg);
   NETSTACK_NETWORK.output(NULL);
+  /* In send_discovery function of all node types */
+
+
   
   LOG_INFO("Sent discovery message\n");
 }
@@ -168,10 +174,17 @@ static void receive_callback(const void *data, uint16_t len,
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
   if(len == 0) return;
+  LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", src->u8[0], len);
+
+  /* Ignore messages from self */
+  if(src->u8[0] == node_id) {
+    LOG_INFO("Ignoring message from self\n");
+    return;
+  }
   
   uint8_t *msg = (uint8_t *)data;
   uint8_t msg_type = msg[0];
-  
+  LOG_INFO("Message type: %u\n", msg_type);
   /* Process based on message type */
   switch(msg_type) {
     case 1: /* Discovery message */
@@ -179,15 +192,23 @@ static void receive_callback(const void *data, uint16_t len,
         uint8_t source_id = msg[1];
         uint8_t hop_count = msg[2];
         uint8_t energy = msg[3];
+
+        LOG_INFO("Discovery details: source=%u, hop_count=%u, energy=%u, my_hop=%u\n", 
+                 source_id, hop_count, energy, hop_to_root);
         
         /* If this is a better parent */
         if(hop_count < hop_to_root || 
            (hop_count == hop_to_root && energy > (energy_level >> 8))) {
+            LOG_INFO("Better parent found! Old: %u (hop %u), New: %u (hop %u)\n",
+                   parent_id, hop_to_root, source_id, hop_count + 1);
           /* Update parent */
           parent_id = source_id;
           hop_to_root = hop_count + 1;
           
           LOG_INFO("Selected new parent %u (hop count: %u)\n", 
+                   parent_id, hop_to_root);
+        }else {
+          LOG_INFO("Not a better parent. Current: %u (hop %u)\n", 
                    parent_id, hop_to_root);
         }
       }

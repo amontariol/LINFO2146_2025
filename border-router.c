@@ -31,6 +31,8 @@ static void receive_callback(const void *data, uint16_t len,
 /* Main process */
 PROCESS_THREAD(border_router_process, ev, data)
 {
+  static struct etimer test_timer;
+  
   PROCESS_BEGIN();
   
   /* Initialize NullNet */
@@ -41,9 +43,24 @@ PROCESS_THREAD(border_router_process, ev, data)
   
   LOG_INFO("Border router started\n");
   
+  /* Set up test timer */
+  etimer_set(&test_timer, CLOCK_SECOND * 5);
+  
   /* Main loop */
   while(1) {
-    PROCESS_YIELD();
+    PROCESS_WAIT_EVENT();
+    
+    if(etimer_expired(&test_timer)) {
+      /* Send a simple test message */
+      static uint8_t test_msg[2] = {99, BORDER_ROUTER_ID};
+      nullnet_buf = test_msg;
+      nullnet_len = sizeof(test_msg);
+      NETSTACK_NETWORK.output(NULL);
+      
+      LOG_INFO("Sent test message\n");
+      
+      etimer_reset(&test_timer);
+    }
   }
   
   PROCESS_END();
@@ -88,6 +105,9 @@ static void send_discovery(void)
   nullnet_buf = discovery_msg;
   nullnet_len = sizeof(discovery_msg);
   NETSTACK_NETWORK.output(NULL);
+
+  LOG_INFO("Sending discovery: type=%u, id=%u, hop=%u, energy=%u\n",
+         discovery_msg[0], discovery_msg[1], discovery_msg[2], discovery_msg[3]);
   
   LOG_INFO("Sent discovery message\n");
 }
@@ -97,6 +117,12 @@ static void receive_callback(const void *data, uint16_t len,
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
   if(len == 0) return;
+
+  /* Ignore messages from self */
+  if(src->u8[0] == node_id) {
+    LOG_INFO("Ignoring message from self\n");
+    return;
+  }
   
   /* Just log the received message */
   LOG_INFO("Received message from node %u, length %u\n", 

@@ -3,7 +3,7 @@ build/cooja/obj/anti-replay.o: \
  /home/lingi2146/contiki-ng/os/net/mac/anti-replay.h \
  /home/lingi2146/contiki-ng/os/contiki.h \
  /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h \
- /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
+ project-conf.h /home/lingi2146/contiki-ng/os/contiki-default-conf.h \
  /home/lingi2146/contiki-ng/os/sys/process.h \
  /home/lingi2146/contiki-ng/os/sys/pt.h \
  /home/lingi2146/contiki-ng/os/sys/lc.h \
@@ -37,6 +37,7 @@ build/cooja/obj/anti-replay.o: \
 /home/lingi2146/contiki-ng/os/net/mac/anti-replay.h:
 /home/lingi2146/contiki-ng/os/contiki.h:
 /home/lingi2146/contiki-ng/arch/platform/cooja/./contiki-conf.h:
+project-conf.h:
 /home/lingi2146/contiki-ng/os/contiki-default-conf.h:
 /home/lingi2146/contiki-ng/os/sys/process.h:
 /home/lingi2146/contiki-ng/os/sys/pt.h:
