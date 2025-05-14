@@ -185,6 +185,38 @@ class Server:
         if self.socket:
             self.socket.close()
 
+    def receive_line(self):
+        # Read a line from the socket
+        buffer = b""
+        try:
+            while self.running:
+                char = self.client.recv(1)
+                if not char:
+                    return None
+                
+                if char == b'\n':
+                    return buffer.decode('utf-8')
+                
+                buffer += char
+        except socket.timeout:
+            return None
+        except ConnectionResetError:
+            print("Connection reset by border router")
+            return None
+        
+
+    def print_network_status(self):
+        """Print current network status"""
+        print("\n=== Network Status ===")
+        print(f"Connected sensors: {len(self.sensors)}")
+        for sensor_id, sensor in self.sensors.items():
+            valve_status = "OPEN" if sensor.valve_open else "CLOSED"
+            readings = sensor.readings[-5:] if sensor.readings else []
+            print(f"Sensor {sensor_id}: Valve {valve_status}, Last 5 readings: {readings}")
+        print("=====================\n")
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="Building Management Server")
     parser.add_argument("--ip", dest="ip", type=str, default="localhost",
