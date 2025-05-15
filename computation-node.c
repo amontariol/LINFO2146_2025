@@ -216,13 +216,19 @@ static void receive_callback(const void *data, uint16_t len,
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
   if(len == 0) return;
-  LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", src->u8[0], len);
+
+  uint8_t *msg = (uint8_t *)data;
+  uint8_t msg_type = msg[0];
+  if (len >= 2) {
+    uint8_t source_id = msg[1];
+    LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", source_id, len);
+  } else {
+    LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", src->u8[0], len);
+  }
   if(src->u8[0] == node_id) {
     LOG_INFO("Ignoring message from self\n");
     return;
   }
-  uint8_t *msg = (uint8_t *)data;
-  uint8_t msg_type = msg[0];
   LOG_INFO("Message type: %u\n", msg_type);
   switch(msg_type) {
     case 1: /* Discovery message */

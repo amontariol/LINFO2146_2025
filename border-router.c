@@ -166,13 +166,24 @@ static void process_serial_input(char *line)
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
+
+  // Print raw data for debugging
+  printf("DATA ");
+  for(int i = 0; i < len; i++) {
+    printf("%02x ", ((uint8_t *)data)[i]);
+  }
+  printf("\n");
   if(len == 0) return;
   if(src->u8[0] == node_id) return;
 
-  LOG_INFO("Received message from node %u, length %u\n", src->u8[0], len);
-
   uint8_t *msg = (uint8_t *)data;
   uint8_t msg_type = msg[0];
+  if (len >= 2) {
+    uint8_t source_id = msg[1];
+    LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", source_id, len);
+  } else {
+    LOG_INFO("RECEIVED MESSAGE from %u, length %u\n", src->u8[0], len);
+  }
   
   switch(msg_type) {
     case 1: // Discovery response
@@ -216,11 +227,4 @@ static void receive_callback(const void *data, uint16_t len,
       }
       break;
   }
-
-  // Print raw data for debugging
-  printf("DATA ");
-  for(int i = 0; i < len; i++) {
-    printf("%02x ", ((uint8_t *)data)[i]);
-  }
-  printf("\n");
 }
