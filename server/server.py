@@ -72,6 +72,11 @@ class Server:
             valve_thread.daemon = True
             valve_thread.start()
             
+            # Start status print thread
+            status_thread = threading.Thread(target=self.print_status_periodically)
+            status_thread.daemon = True
+            status_thread.start()
+            
             # Handle messages from the border router
             self.handle_messages()
             
@@ -82,14 +87,21 @@ class Server:
     
     def handle_messages(self):
         # Handle messages from the border router
+        buffer = ""
         while self.running:
             try:
-                data = self.receive_line()
+                data = self.socket.recv(1024).decode('utf-8')
                 if not data:
                     print("Connection closed by border router")
                     break
                 
-                self.process_message(data)
+                buffer += data
+                lines = buffer.split('\n')
+                buffer = lines.pop()  # Keep the last incomplete line
+                
+                for line in lines:
+                    if line.strip():
+                        self.process_message(line.strip())
             except Exception as e:
                 print(f"Error handling messages: {e}")
                 break
@@ -99,76 +111,52 @@ class Server:
             self.socket.close()
             self.socket = None
     
-    def receive_line(self):
-        # Read a line from the socket
-        buffer = b""
-        try:
-            while self.running:
-                char = self.socket.recv(1)
-                if not char:
-                    return None
-                
-                if char == b'\n':
-                    return buffer.decode('utf-8')
-                
-                buffer += char
-        except socket.timeout:
-            return None
-        except ConnectionResetError:
-            print("Connection reset by border router")
-            return None
-    
     def process_message(self, message):
         # Parse and process messages from the border router
         print(f"Received: {message}")
-        parts = message.strip().split()
         
-        if not parts:
-            return
-        
-        if parts[0] == "DATA" and len(parts) >= 4:
-            # Format: DATA sensor_id value timestamp
-            try:
-                sensor_id = int(parts[1])
-                value = int(parts[2])
-                timestamp = int(time.time())  # Use current time as timestamp
-                
-                # Get or create sensor data
-                if sensor_id not in self.sensors:
-                    self.sensors[sensor_id] = SensorData(sensor_id)
-                
-                # Add reading
-                self.sensors[sensor_id].add_reading(value, timestamp)
-                print(f"Received data from sensor {sensor_id}: {value}")
-                
-                # Calculate slope and check if valve should be opened
-                if len(self.sensors[sensor_id].readings) >= 2:
-                    slope = self.sensors[sensor_id].calculate_slope()
-                    print(f"Calculated slope for sensor {sensor_id}: {slope:.2f}")
+        if message.startswith("DATA "):
+            parts = message.split()
+            if len(parts) >= 3:
+                try:
+                    # Format: DATA sensor_id value timestamp
+                    if len(parts) >= 4:
+                        sensor_id = int(parts[1])
+                        value = int(parts[2])
+                        timestamp = int(parts[3])
+                    else:
+                        # If no timestamp provided, use current time
+                        sensor_id = int(parts[1])
+                        value = int(parts[2])
+                        timestamp = int(time.time())
                     
-                    if slope > SLOPE_THRESHOLD and not self.sensors[sensor_id].valve_open:
-                        # Open valve
-                        self.send_command(sensor_id, 1)
-                        self.sensors[sensor_id].valve_open = True
-                        self.sensors[sensor_id].valve_open_time = time.time()
-                        print(f"Opening valve for sensor {sensor_id} for {VALVE_DURATION} seconds")
-            except Exception as e:
-                print(f"Error processing data message: {e}")
-        
-        elif parts[0] == "ENERGY" and len(parts) >= 3:
-            # Format: ENERGY node_id energy_level
-            try:
-                node_id = int(parts[1])
-                energy = int(parts[2])
-                print(f"Energy level for node {node_id}: {energy}")
-            except Exception as e:
-                print(f"Error processing energy message: {e}")
+                    # Get or create sensor data
+                    if sensor_id not in self.sensors:
+                        self.sensors[sensor_id] = SensorData(sensor_id)
+                    
+                    # Add reading
+                    self.sensors[sensor_id].add_reading(value, timestamp)
+                    print(f"Received data from sensor {sensor_id}: {value}")
+                    
+                    # Calculate slope and check if valve should be opened
+                    if len(self.sensors[sensor_id].readings) >= 2:
+                        slope = self.sensors[sensor_id].calculate_slope()
+                        print(f"Calculated slope for sensor {sensor_id}: {slope:.2f}")
+                        
+                        if slope > SLOPE_THRESHOLD and not self.sensors[sensor_id].valve_open:
+                            # Open valve
+                            self.send_command(sensor_id, 1)
+                            self.sensors[sensor_id].valve_open = True
+                            self.sensors[sensor_id].valve_open_time = time.time()
+                            print(f"Opening valve for sensor {sensor_id} for {VALVE_DURATION} seconds")
+                except Exception as e:
+                    print(f"Error processing data message: {e}")
     
     def send_command(self, sensor_id, command):
         # Send command to open/close valve
         if self.socket:
             message = f"COMMAND {sensor_id} {command}\n"
-            self.socket.send(message.encode('utf-8'))
+            self.socket.sendall(message.encode('utf-8'))
             print(f"Sent command: {message.strip()}")
     
     def check_valves(self):
@@ -176,7 +164,7 @@ class Server:
         while self.running:
             current_time = time.time()
             
-            for sensor_id, sensor in self.sensors.items():
+            for sensor_id, sensor in list(self.sensors.items()):
                 if sensor.valve_open and current_time - sensor.valve_open_time >= VALVE_DURATION:
                     # Close valve
                     self.send_command(sensor_id, 0)
@@ -184,6 +172,12 @@ class Server:
                     print(f"Closing valve for sensor {sensor_id} (timer expired)")
             
             time.sleep(1)
+    
+    def print_status_periodically(self):
+        # Print network status every minute
+        while self.running:
+            time.sleep(60)
+            self.print_network_status()
     
     def stop(self):
         self.running = False

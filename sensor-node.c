@@ -16,9 +16,13 @@
 #define DISCOVERY_INTERVAL     (CLOCK_SECOND * 60)
 #define SENSOR_READ_INTERVAL   (CLOCK_SECOND * 60)
 #define VALVE_DURATION         60 // 1 minute
+#define MAX_CHILDREN           10
 
 static uint16_t parent_id = 0xFFFF;
 static uint8_t hop_to_root = 0xFF;
+static uint8_t children[MAX_CHILDREN];
+static uint8_t child_count = 0;
+static uint8_t valve_open = 0;
 
 PROCESS(sensor_node_process, "Sensor Node Process");
 PROCESS(discovery_process, "Discovery Process");
@@ -32,6 +36,8 @@ static void send_data(uint16_t value);
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest);
 static uint16_t generate_sensor_data(void);
+static void add_child(uint8_t child_id);
+static uint8_t find_next_hop(uint8_t target_id);
 
 PROCESS_THREAD(sensor_node_process, ev, data)
 {
@@ -65,6 +71,7 @@ PROCESS_THREAD(energest_process, ev, data)
   }
   PROCESS_END();
 }
+
 PROCESS_THREAD(discovery_process, ev, data)
 {
   static struct etimer discovery_timer;
@@ -106,9 +113,33 @@ PROCESS_THREAD(data_process, ev, data)
   PROCESS_END();
 }
 
+static void add_child(uint8_t child_id)
+{
+  for(int i = 0; i < child_count; i++) {
+    if(children[i] == child_id) return; // Already a child
+  }
+  
+  if(child_count < MAX_CHILDREN) {
+    children[child_count++] = child_id;
+    LOG_INFO("Added child %u\n", child_id);
+  }
+}
+
+static uint8_t find_next_hop(uint8_t target_id)
+{
+  // Check if target is a direct child
+  for(int i = 0; i < child_count; i++) {
+    if(children[i] == target_id) {
+      return target_id;
+    }
+  }
+  
+  // If not found, forward to parent
+  return parent_id;
+}
+
 static void send_discovery(void)
 {
-
   energest_flush();
   unsigned long total = energest_type_time(ENERGEST_TYPE_CPU) +
                         energest_type_time(ENERGEST_TYPE_LPM) +
@@ -146,6 +177,17 @@ static void send_data(uint16_t value)
   nullnet_buf = data_msg;
   nullnet_len = sizeof(data_msg);
   NETSTACK_NETWORK.output(&parent_addr);
+}
+
+static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest)
+{
+  linkaddr_t dest_addr;
+  dest_addr.u8[0] = dest;
+  dest_addr.u8[1] = 0;
+  nullnet_buf = (uint8_t *)data;
+  nullnet_len = len;
+  NETSTACK_NETWORK.output(&dest_addr);
+  LOG_INFO("Forwarded message to %u\n", dest_addr.u8[0]);
 }
 
 static void receive_callback(const void *data, uint16_t len, 
@@ -188,17 +230,39 @@ static void receive_callback(const void *data, uint16_t len,
           LOG_INFO("Kept current parent %u (hop %u, my_energy=%u >= received_energy=%u)\n",
            parent_id, hop_to_root, my_energy_metric >> 8, energy);
         }
+        
+        // If this is from a child, add to child list
+        if(hop_count > hop_to_root) {
+          add_child(source_id);
+        }
       }
       break;
     case 4: // Command
-      if(len >= 4 && msg[1] == SENSOR_NODE_ID) {
-        uint8_t command = msg[2];
-        if(command == 1) {
-          leds_on(LEDS_GREEN);
-          LOG_INFO("Valve opened\n");
+      if(len >= 4) {
+        uint8_t target_id = msg[1];
+        if(target_id == SENSOR_NODE_ID) {
+          // Command is for me
+          uint8_t command = msg[2];
+          if(command == 1) {
+            leds_on(LEDS_GREEN);
+            valve_open = 1;
+            LOG_INFO("Valve opened\n");
+          } else {
+            leds_off(LEDS_GREEN);
+            valve_open = 0;
+            LOG_INFO("Valve closed\n");
+          }
         } else {
-          leds_off(LEDS_GREEN);
-          LOG_INFO("Valve closed\n");
+          // Forward the command to the appropriate child
+          uint8_t next_hop = find_next_hop(target_id);
+          if(next_hop != 0xFF) {
+            forward_message(msg, len, next_hop);
+            LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, next_hop);
+          } else if(parent_id != 0xFFFF) {
+            // If we don't know how to route, send to parent as fallback
+            forward_message(msg, len, parent_id);
+            LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
+          }
         }
       }
       break;

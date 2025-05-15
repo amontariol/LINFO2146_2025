@@ -17,6 +17,7 @@
 #define SLOPE_THRESHOLD        5.0
 #define CLEANUP_INTERVAL       (CLOCK_SECOND * 300)
 #define VALVE_DURATION         60 // 1 minute for testing
+#define MAX_CHILDREN           10
 
 typedef struct {
   uint8_t sensor_id;
@@ -26,6 +27,7 @@ typedef struct {
   uint8_t active;
   uint8_t valve_open;
   uint32_t valve_open_time;
+  uint8_t is_direct_child;
 } sensor_data_t;
 
 static uint16_t parent_id = 0xFFFF;
@@ -33,10 +35,13 @@ static uint8_t hop_to_root = 0xFF;
 static uint16_t energy_level = 1000;
 static sensor_data_t sensors[MAX_SENSOR_NODES];
 static uint8_t sensor_count = 0;
+static uint8_t children[MAX_CHILDREN];
+static uint8_t child_count = 0;
 
 PROCESS(computation_node_process, "Computation Node Process");
 PROCESS(discovery_process, "Discovery Process");
 PROCESS(valve_timer_process, "Valve Timer Process");
+PROCESS(cleanup_process, "Cleanup Process");
 AUTOSTART_PROCESSES(&computation_node_process);
 
 static void send_discovery(void);
@@ -45,10 +50,11 @@ static void send_command(uint8_t sensor_id, uint8_t command);
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest);
 static int8_t find_sensor(uint8_t sensor_id);
-static int8_t add_sensor(uint8_t sensor_id);
+static int8_t add_sensor(uint8_t sensor_id, uint8_t is_direct_child);
 static void add_reading(int8_t index, uint16_t value);
 static float calculate_slope(int8_t sensor_index);
 static uint8_t find_next_hop(uint8_t target_id);
+static void add_child(uint8_t child_id);
 
 PROCESS_THREAD(computation_node_process, ev, data)
 {
@@ -57,6 +63,7 @@ PROCESS_THREAD(computation_node_process, ev, data)
   memset(sensors, 0, sizeof(sensors));
   process_start(&discovery_process, NULL);
   process_start(&valve_timer_process, NULL);
+  process_start(&cleanup_process, NULL);
   LOG_INFO("Computation node %u started\n", COMPUTATION_NODE_ID);
   PROCESS_END();
 }
@@ -95,6 +102,25 @@ PROCESS_THREAD(valve_timer_process, ev, data)
   PROCESS_END();
 }
 
+PROCESS_THREAD(cleanup_process, ev, data)
+{
+  static struct etimer cleanup_timer;
+  PROCESS_BEGIN();
+  etimer_set(&cleanup_timer, CLEANUP_INTERVAL);
+  while(1) {
+    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&cleanup_timer));
+    uint32_t now = clock_seconds();
+    for(int i = 0; i < sensor_count; i++) {
+      if(sensors[i].active && (now - sensors[i].last_update > CLEANUP_INTERVAL / CLOCK_SECOND)) {
+        LOG_INFO("Removing inactive sensor %u\n", sensors[i].sensor_id);
+        sensors[i].active = 0;
+      }
+    }
+    etimer_reset(&cleanup_timer);
+  }
+  PROCESS_END();
+}
+
 static void send_discovery(void)
 {
   static uint8_t discovery_msg[4];
@@ -124,27 +150,65 @@ static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest)
 static void send_command(uint8_t sensor_id, uint8_t command)
 {
   static uint8_t cmd_msg[4];
-  linkaddr_t dest_addr;
   cmd_msg[0] = 4;
   cmd_msg[1] = sensor_id;
   cmd_msg[2] = command;
   cmd_msg[3] = 0;
 
   uint8_t next_hop = find_next_hop(sensor_id);
-  dest_addr.u8[0] = next_hop;
-  dest_addr.u8[1] = 0;
-  nullnet_buf = cmd_msg;
-  nullnet_len = sizeof(cmd_msg);
-  NETSTACK_NETWORK.output(&dest_addr);
-
-  LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+  if(next_hop != 0xFF) {
+    linkaddr_t dest_addr;
+    dest_addr.u8[0] = next_hop;
+    dest_addr.u8[1] = 0;
+    nullnet_buf = cmd_msg;
+    nullnet_len = sizeof(cmd_msg);
+    NETSTACK_NETWORK.output(&dest_addr);
+    LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+  } else {
+    // If we don't know the route, try via parent
+    if(parent_id != 0xFFFF) {
+      linkaddr_t parent_addr;
+      parent_addr.u8[0] = parent_id;
+      parent_addr.u8[1] = 0;
+      nullnet_buf = cmd_msg;
+      nullnet_len = sizeof(cmd_msg);
+      NETSTACK_NETWORK.output(&parent_addr);
+      LOG_INFO("Sent command %u to sensor %u via parent %u\n", command, sensor_id, parent_id);
+    } else {
+      LOG_INFO("Cannot send command to sensor %u: no route\n", sensor_id);
+    }
+  }
 }
 
-// Simple next hop: always forward to parent (tree routing)
+static void add_child(uint8_t child_id)
+{
+  for(int i = 0; i < child_count; i++) {
+    if(children[i] == child_id) return; // Already a child
+  }
+  
+  if(child_count < MAX_CHILDREN) {
+    children[child_count++] = child_id;
+    LOG_INFO("Added child %u\n", child_id);
+  }
+}
+
 static uint8_t find_next_hop(uint8_t target_id)
 {
-  // If you want to optimize, keep a child table and check if target_id is a direct child.
-  // For now, just forward to parent.
+  // Check if target is a direct child
+  for(int i = 0; i < child_count; i++) {
+    if(children[i] == target_id) {
+      return target_id;
+    }
+  }
+  
+  // Check if we know which sensor is a direct child
+  for(int i = 0; i < sensor_count; i++) {
+    if(sensors[i].sensor_id == target_id && sensors[i].active && sensors[i].is_direct_child) {
+      return target_id;
+    }
+  }
+  
+  // If not found, forward to parent
   return parent_id;
 }
 
@@ -176,9 +240,14 @@ static void receive_callback(const void *data, uint16_t len,
           hop_to_root = hop_count + 1;
           LOG_INFO("Selected new parent %u (hop count: %u)\n", 
                    parent_id, hop_to_root);
-        }else {
+        } else {
           LOG_INFO("Not a better parent. Current: %u (hop %u)\n", 
                    parent_id, hop_to_root);
+        }
+        
+        // If this is from a child, add to child list
+        if(hop_count > hop_to_root) {
+          add_child(source_id);
         }
       }
       break;
@@ -186,10 +255,12 @@ static void receive_callback(const void *data, uint16_t len,
       if(len >= 6) {
         uint8_t source_id = msg[1];
         uint16_t value = (msg[4] << 8) | msg[5];
+        
+        // Check if we should handle this sensor
         if(sensor_count < MAX_SENSOR_NODES || find_sensor(source_id) >= 0) {
           int8_t sensor_index = find_sensor(source_id);
           if(sensor_index == -1) {
-            sensor_index = add_sensor(source_id);
+            sensor_index = add_sensor(source_id, src->u8[0] == source_id);
             LOG_INFO("Added new sensor %u (index %d)\n", source_id, sensor_index);
           }
           add_reading(sensor_index, value);
@@ -206,8 +277,11 @@ static void receive_callback(const void *data, uint16_t len,
             }
           }
         } else {
-          forward_message(msg, len, parent_id);
-          LOG_INFO("At capacity, forwarded data from sensor %u\n", source_id);
+          // At capacity, forward to parent
+          if(parent_id != 0xFFFF) {
+            forward_message(msg, len, parent_id);
+            LOG_INFO("At capacity, forwarded data from sensor %u\n", source_id);
+          }
         }
       }
       break;
@@ -215,6 +289,7 @@ static void receive_callback(const void *data, uint16_t len,
       uint8_t target_id = msg[1];
       if(target_id == node_id) {
         // Should not happen for computation node
+        LOG_INFO("Received command for self, ignoring\n");
       } else {
         // Forward the command toward the target
         uint8_t next_hop = find_next_hop(target_id);
@@ -222,8 +297,11 @@ static void receive_callback(const void *data, uint16_t len,
           forward_message(msg, len, next_hop);
           LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, next_hop);
         } else {
-          forward_message(msg, len, parent_id);
-          LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
+          // If we don't know the route, try via parent
+          if(parent_id != 0xFFFF) {
+            forward_message(msg, len, parent_id);
+            LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
+          }
         }
       }
       break;
@@ -246,7 +324,7 @@ static int8_t find_sensor(uint8_t sensor_id)
   return -1;
 }
 
-static int8_t add_sensor(uint8_t sensor_id)
+static int8_t add_sensor(uint8_t sensor_id, uint8_t is_direct_child)
 {
   for(int i = 0; i < sensor_count; i++) {
     if(!sensors[i].active) {
@@ -256,6 +334,7 @@ static int8_t add_sensor(uint8_t sensor_id)
       sensors[i].active = 1;
       sensors[i].valve_open = 0;
       sensors[i].valve_open_time = 0;
+      sensors[i].is_direct_child = is_direct_child;
       return i;
     }
   }
@@ -266,6 +345,7 @@ static int8_t add_sensor(uint8_t sensor_id)
     sensors[sensor_count].active = 1;
     sensors[sensor_count].valve_open = 0;
     sensors[sensor_count].valve_open_time = 0;
+    sensors[sensor_count].is_direct_child = is_direct_child;
     return sensor_count++;
   }
   return -1;
