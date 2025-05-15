@@ -16,13 +16,10 @@
 #define DISCOVERY_INTERVAL     (CLOCK_SECOND * 60)
 #define SENSOR_READ_INTERVAL   (CLOCK_SECOND * 60)
 #define VALVE_DURATION         60 // 1 minute
-#define MAX_CHILDREN           10
 
 static uint16_t parent_id = 0xFFFF;
 static uint8_t hop_to_root = 0xFF;
-static uint8_t children[MAX_CHILDREN];
-static uint8_t child_count = 0;
-static uint8_t valve_open = 0;
+//static uint8_t valve_open = 0;
 
 PROCESS(sensor_node_process, "Sensor Node Process");
 PROCESS(discovery_process, "Discovery Process");
@@ -36,8 +33,6 @@ static void send_data(uint16_t value);
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest);
 static uint16_t generate_sensor_data(void);
-static void add_child(uint8_t child_id);
-static uint8_t find_next_hop(uint8_t target_id);
 
 PROCESS_THREAD(sensor_node_process, ev, data)
 {
@@ -95,8 +90,9 @@ PROCESS_THREAD(data_process, ev, data)
   static uint16_t sensor_value;
   PROCESS_BEGIN();
 
-  etimer_set(&data_timer, SENSOR_READ_INTERVAL + 
-            (random_rand() % (SENSOR_READ_INTERVAL/10)));
+  // Start with a shorter interval to get data flowing quickly
+  etimer_set(&data_timer, CLOCK_SECOND * 10 + 
+            (random_rand() % (CLOCK_SECOND * 5)));
 
   while(1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&data_timer));
@@ -111,31 +107,6 @@ PROCESS_THREAD(data_process, ev, data)
   }
 
   PROCESS_END();
-}
-
-static void add_child(uint8_t child_id)
-{
-  for(int i = 0; i < child_count; i++) {
-    if(children[i] == child_id) return; // Already a child
-  }
-  
-  if(child_count < MAX_CHILDREN) {
-    children[child_count++] = child_id;
-    LOG_INFO("Added child %u\n", child_id);
-  }
-}
-
-static uint8_t find_next_hop(uint8_t target_id)
-{
-  // Check if target is a direct child
-  for(int i = 0; i < child_count; i++) {
-    if(children[i] == target_id) {
-      return target_id;
-    }
-  }
-  
-  // If not found, forward to parent
-  return parent_id;
 }
 
 static void send_discovery(void)
@@ -179,17 +150,6 @@ static void send_data(uint16_t value)
   NETSTACK_NETWORK.output(&parent_addr);
 }
 
-static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest)
-{
-  linkaddr_t dest_addr;
-  dest_addr.u8[0] = dest;
-  dest_addr.u8[1] = 0;
-  nullnet_buf = (uint8_t *)data;
-  nullnet_len = len;
-  NETSTACK_NETWORK.output(&dest_addr);
-  LOG_INFO("Forwarded message to %u\n", dest_addr.u8[0]);
-}
-
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
@@ -206,7 +166,6 @@ static void receive_callback(const void *data, uint16_t len,
         uint8_t hop_count = msg[2];
         uint8_t energy = msg[3];
 
-        // Compute my own energy metric
         energest_flush();
         unsigned long my_total = energest_type_time(ENERGEST_TYPE_CPU) +
                                 energest_type_time(ENERGEST_TYPE_LPM) +
@@ -230,48 +189,74 @@ static void receive_callback(const void *data, uint16_t len,
           LOG_INFO("Kept current parent %u (hop %u, my_energy=%u >= received_energy=%u)\n",
            parent_id, hop_to_root, my_energy_metric >> 8, energy);
         }
-        
-        // If this is from a child, add to child list
-        if(hop_count > hop_to_root) {
-          add_child(source_id);
-        }
       }
       break;
     case 4: // Command
       if(len >= 4) {
         uint8_t target_id = msg[1];
-        if(target_id == SENSOR_NODE_ID) {
-          // Command is for me
-          uint8_t command = msg[2];
+        uint8_t command = msg[2];
+        if(target_id == SENSOR_NODE_ID || target_id == 0 || target_id == 255) {
+          LOG_INFO("Received command %u for self\n", command);
           if(command == 1) {
             leds_on(LEDS_GREEN);
-            valve_open = 1;
             LOG_INFO("Valve opened\n");
           } else {
             leds_off(LEDS_GREEN);
-            valve_open = 0;
             LOG_INFO("Valve closed\n");
           }
         } else {
-          // Forward the command to the appropriate child
-          uint8_t next_hop = find_next_hop(target_id);
-          if(next_hop != 0xFF) {
-            forward_message(msg, len, next_hop);
-            LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, next_hop);
-          } else if(parent_id != 0xFFFF) {
-            // If we don't know how to route, send to parent as fallback
-            forward_message(msg, len, parent_id);
-            LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
-          }
+          LOG_INFO("Ignoring command for node %u\n", target_id);
         }
       }
       break;
+    case 3: // Data message
+      // *** Always forward data messages up the tree, unmodified ***
+      if(parent_id != 0xFFFF) {
+        linkaddr_t parent_addr;
+        parent_addr.u8[0] = parent_id;
+        parent_addr.u8[1] = 0;
+        uint8_t fwd_buf[32];
+        if(len > sizeof(fwd_buf)) len = sizeof(fwd_buf);
+        memcpy(fwd_buf, data, len);
+        nullnet_buf = fwd_buf;
+        nullnet_len = len;
+        NETSTACK_NETWORK.output(&parent_addr);
+        LOG_INFO("Forwarded data message from sensor %u to parent %u\n", msg[1], parent_id);      }
+      break;
     default:
+      // Optionally forward other messages
       break;
   }
 }
 
 static uint16_t generate_sensor_data(void)
 {
-  return 400 + (random_rand() % 600);
+  // Generate data with more variation to trigger slope detection
+  static uint16_t last_value = 500;
+  static uint8_t trend_counter = 0;
+  static int8_t trend_direction = 1;
+  int16_t change;
+  
+  // Every few readings, create a significant trend
+  if(trend_counter == 0) {
+    trend_direction = (random_rand() % 2) ? 1 : -1;
+    trend_counter = 3 + (random_rand() % 3); // Trend lasts 3-5 readings
+  }
+  
+  if(trend_counter > 0) {
+    // During a trend, make consistent changes in one direction
+    change = trend_direction * (30 + (random_rand() % 50));
+    trend_counter--;
+  } else {
+    // Random fluctuations between trends
+    change = (random_rand() % 60) - 30;
+  }
+  
+  last_value += change;
+  
+  // Keep values in reasonable range
+  if(last_value < 400) last_value = 400;
+  if(last_value > 1000) last_value = 1000;
+  
+  return last_value;
 }

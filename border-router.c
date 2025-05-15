@@ -13,11 +13,19 @@
 
 #define BORDER_ROUTER_ID       1
 #define DISCOVERY_INTERVAL     (CLOCK_SECOND * 30)
-#define MAX_CHILDREN           10
 
+// Routing table to keep track of next hops
+#define MAX_ROUTES 10
+typedef struct {
+  uint8_t dest_id;
+  uint8_t next_hop;
+  uint8_t hop_count;
+  uint32_t last_updated;
+} route_entry_t;
+
+static route_entry_t routing_table[MAX_ROUTES];
+static uint8_t route_count = 0;
 static uint16_t energy_level = 1000;
-static uint8_t children[MAX_CHILDREN];
-static uint8_t child_count = 0;
 
 PROCESS(border_router_process, "Border Router Process");
 PROCESS(discovery_process, "Discovery Process");
@@ -27,9 +35,9 @@ AUTOSTART_PROCESSES(&border_router_process);
 static void send_discovery(void);
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest);
-static void process_serial_input(char *line);
-static void add_child(uint8_t child_id);
-static uint8_t find_next_hop(uint8_t target_id);
+static void forward_command(uint8_t sensor_id, uint8_t command);
+static void update_route(uint8_t dest_id, uint8_t next_hop, uint8_t hop_count);
+static uint8_t find_next_hop(uint8_t dest_id);
 
 PROCESS_THREAD(border_router_process, ev, data)
 {
@@ -39,11 +47,10 @@ PROCESS_THREAD(border_router_process, ev, data)
   process_start(&discovery_process, NULL);
   process_start(&serial_process, NULL);
 
-  LOG_INFO("Border router started (ID %u)\n", BORDER_ROUTER_ID);
+  // Initialize routing table
+  memset(routing_table, 0, sizeof(routing_table));
 
-  while(1) {
-    PROCESS_YIELD();
-  }
+  LOG_INFO("Border router started (ID %u)\n", BORDER_ROUTER_ID);
 
   PROCESS_END();
 }
@@ -71,9 +78,24 @@ PROCESS_THREAD(serial_process, ev, data)
   serial_line_init();
   
   while(1) {
-    PROCESS_YIELD();
-    if(ev == serial_line_event_message) {
-      process_serial_input((char *)data);
+    PROCESS_WAIT_EVENT_UNTIL(ev == serial_line_event_message);
+    
+    char *message = (char *)data;
+    LOG_INFO("Received serial message: %s\n", message);
+    
+    // Parse command messages from server
+    if(strncmp(message, "COMMAND", 7) == 0) {
+      char *token = strtok(message, " ");
+      token = strtok(NULL, " "); // Get sensor_id
+      if(token != NULL) {
+        uint8_t sensor_id = (uint8_t)atoi(token);
+        token = strtok(NULL, " "); // Get command
+        if(token != NULL) {
+          uint8_t command = (uint8_t)atoi(token);
+          LOG_INFO("Parsed command: sensor_id=%u, command=%u\n", sensor_id, command);
+          forward_command(sensor_id, command);
+        }
+      }
     }
   }
   
@@ -96,70 +118,74 @@ static void send_discovery(void)
            discovery_msg[1], discovery_msg[3]);
 }
 
-static void add_child(uint8_t child_id)
+static void update_route(uint8_t dest_id, uint8_t next_hop, uint8_t hop_count)
 {
-  for(int i = 0; i < child_count; i++) {
-    if(children[i] == child_id) return; // Already a child
-  }
-  
-  if(child_count < MAX_CHILDREN) {
-    children[child_count++] = child_id;
-    LOG_INFO("Added child %u\n", child_id);
-  }
-}
-
-static uint8_t find_next_hop(uint8_t target_id)
-{
-  // Check if target is a direct child
-  for(int i = 0; i < child_count; i++) {
-    if(children[i] == target_id) {
-      return target_id;
+  // Check if route already exists
+  for(int i = 0; i < route_count; i++) {
+    if(routing_table[i].dest_id == dest_id) {
+      // Update existing route if new one is better
+      if(hop_count < routing_table[i].hop_count) {
+        routing_table[i].next_hop = next_hop;
+        routing_table[i].hop_count = hop_count;
+        routing_table[i].last_updated = clock_seconds();
+        LOG_INFO("Updated route to %u via %u (hop count: %u)\n", 
+                dest_id, next_hop, hop_count);
+      }
+      return;
     }
   }
   
-  // If not found, we don't know how to route to this node
-  return 0xFF;
+  // Add new route if table isn't full
+  if(route_count < MAX_ROUTES) {
+    routing_table[route_count].dest_id = dest_id;
+    routing_table[route_count].next_hop = next_hop;
+    routing_table[route_count].hop_count = hop_count;
+    routing_table[route_count].last_updated = clock_seconds();
+    route_count++;
+    LOG_INFO("Added new route to %u via %u (hop count: %u)\n", 
+            dest_id, next_hop, hop_count);
+  }
 }
 
-static void process_serial_input(char *line)
+static uint8_t find_next_hop(uint8_t dest_id)
 {
-  char *token;
-  token = strtok(line, " ");
-  
-  if(token && strcmp(token, "COMMAND") == 0) {
-    token = strtok(NULL, " ");
-    if(!token) return;
-    uint8_t sensor_id = atoi(token);
-    
-    token = strtok(NULL, " ");
-    if(!token) return;
-    uint8_t command = atoi(token);
-    
-    // Create command message
-    static uint8_t cmd_msg[4];
-    cmd_msg[0] = 4; // Command type
-    cmd_msg[1] = sensor_id;
-    cmd_msg[2] = command;
-    cmd_msg[3] = 0;
-    
-    // Find next hop to target
-    uint8_t next_hop = find_next_hop(sensor_id);
-    if(next_hop == 0xFF) {
-      // If we don't know the route, broadcast
-      LOG_INFO("Unknown route to sensor %u, broadcasting command\n", sensor_id);
-      nullnet_buf = cmd_msg;
-      nullnet_len = sizeof(cmd_msg);
-      NETSTACK_NETWORK.output(NULL);
-    } else {
-      // Send to next hop
-      linkaddr_t next_addr;
-      next_addr.u8[0] = next_hop;
-      next_addr.u8[1] = 0;
-      nullnet_buf = cmd_msg;
-      nullnet_len = sizeof(cmd_msg);
-      NETSTACK_NETWORK.output(&next_addr);
-      LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+  for(int i = 0; i < route_count; i++) {
+    if(routing_table[i].dest_id == dest_id) {
+      return routing_table[i].next_hop;
     }
+  }
+  
+  // If no specific route, try to send directly
+  return dest_id;
+}
+
+static void forward_command(uint8_t sensor_id, uint8_t command)
+{
+  static uint8_t cmd_msg[4];
+  linkaddr_t dest_addr;
+  
+  cmd_msg[0] = 4; // Command message type
+  cmd_msg[1] = sensor_id;
+  cmd_msg[2] = command;
+  cmd_msg[3] = 0;
+  
+  // Find next hop to destination
+  uint8_t next_hop = find_next_hop(sensor_id);
+  
+  dest_addr.u8[0] = next_hop;
+  dest_addr.u8[1] = 0;
+  
+  nullnet_buf = cmd_msg;
+  nullnet_len = sizeof(cmd_msg);
+  NETSTACK_NETWORK.output(&dest_addr);
+  
+  LOG_INFO("Forwarded command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+  
+  // For sensors directly connected to border router, also broadcast the command
+  // This helps with sensors that might not have established routes yet
+  if(next_hop == sensor_id) {
+    NETSTACK_NETWORK.output(NULL);
+    LOG_INFO("Also broadcast command %u to sensor %u\n", command, sensor_id);
   }
 }
 
@@ -169,58 +195,30 @@ static void receive_callback(const void *data, uint16_t len,
   if(len == 0) return;
   if(src->u8[0] == node_id) return;
 
-  LOG_INFO("Received message from node %u, length %u\n", src->u8[0], len);
-
   uint8_t *msg = (uint8_t *)data;
   uint8_t msg_type = msg[0];
-  
-  switch(msg_type) {
-    case 1: // Discovery response
-      // Add sender as child
-      add_child(src->u8[0]);
-      break;
-      
-    case 3: // Data message
-      if(len >= 6) {
-        uint8_t source_id = msg[1];
-        uint16_t value = (msg[4] << 8) | msg[5];
-        // Forward to server
-        printf("DATA %u %u %lu\n", source_id, value, (unsigned long)clock_seconds());
-      }
-      break;
-      
-    case 4: // Command message
-      if(len >= 4) {
-        uint8_t target_id = msg[1];
-        uint8_t command = msg[2];
-        
-        if(target_id != BORDER_ROUTER_ID) {
-          // Forward command to target
-          uint8_t next_hop = find_next_hop(target_id);
-          if(next_hop != 0xFF) {
-            linkaddr_t next_addr;
-            next_addr.u8[0] = next_hop;
-            next_addr.u8[1] = 0;
-            nullnet_buf = msg;
-            nullnet_len = len;
-            NETSTACK_NETWORK.output(&next_addr);
-            LOG_INFO("Forwarded command %u to sensor %u via %u\n", command, target_id, next_hop);
-          } else {
-            // If we don't know the route, broadcast
-            nullnet_buf = msg;
-            nullnet_len = len;
-            NETSTACK_NETWORK.output(NULL);
-            LOG_INFO("Unknown route to sensor %u, broadcasting command\n", target_id);
-          }
-        }
-      }
-      break;
-  }
 
-  // Print raw data for debugging
-  printf("DATA ");
-  for(int i = 0; i < len; i++) {
-    printf("%02x ", ((uint8_t *)data)[i]);
+  if(msg_type == 3 && len >= 6) { // Data message
+    uint8_t source_id = msg[1];
+    uint16_t value = (msg[4] << 8) | msg[5];
+    printf("Received data from %u: %u\n", source_id, value);
+    printf("DATA ");
+    for(int i = 0; i < len; i++) {
+      printf("%02x ", ((uint8_t *)data)[i]);
+    }
+    printf("\n");
+    update_route(source_id, src->u8[0], 1);
+    printf("light,%02x:%02x,%u\n", source_id, 0, value);
   }
-  printf("\n");
+  else if(msg_type == 1 && len >= 4) { // Discovery message
+    uint8_t source_id = msg[1];
+    uint8_t hop_count = msg[2];
+    update_route(source_id, src->u8[0], hop_count + 1);
+  }
+  else if(msg_type == 4 && len >= 4) { // Command message
+    uint8_t target_id = msg[1];
+    uint8_t command = msg[2];
+    forward_command(target_id, command);
+  }
 }
+
