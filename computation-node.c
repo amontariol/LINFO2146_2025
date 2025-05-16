@@ -10,14 +10,14 @@
 #define LOG_MODULE "ComputationNode"
 #define LOG_LEVEL LOG_LEVEL_INFO
 
-#define COMPUTATION_NODE_ID    (node_id)
-#define DISCOVERY_INTERVAL     (CLOCK_SECOND * 60)
-#define MAX_SENSOR_NODES       5
-#define MAX_SENSOR_READINGS    30
-#define SLOPE_THRESHOLD        5.0
-#define CLEANUP_INTERVAL       (CLOCK_SECOND * 300)
-#define VALVE_DURATION         60 // 1 minute for testing
-#define MAX_CHILDREN           10
+#define COMPUTATION_NODE_ID (node_id)
+#define DISCOVERY_INTERVAL (CLOCK_SECOND * 60)
+#define MAX_SENSOR_NODES 5
+#define MAX_SENSOR_READINGS 30
+#define SLOPE_THRESHOLD 5.0
+#define CLEANUP_INTERVAL (CLOCK_SECOND * 300)
+#define VALVE_DURATION 600
+#define MAX_CHILDREN 10
 
 typedef struct {
   uint8_t sensor_id;
@@ -48,14 +48,14 @@ static void send_discovery(void);
 static void forward_data(const uint8_t *data, uint16_t len, uint8_t treated);
 static void forward_command(const uint8_t *data, uint16_t len, uint8_t dest);
 static void send_command(uint8_t sensor_id, uint8_t command);
-static void receive_callback(const void *data, uint16_t len, 
-                            const linkaddr_t *src, const linkaddr_t *dest);
+static void receive_callback(const void *data, uint16_t len, const linkaddr_t *src, const linkaddr_t *dest);
 static int8_t find_sensor(uint8_t sensor_id);
 static int8_t add_sensor(uint8_t sensor_id, uint8_t is_direct_child);
 static void add_reading(int8_t index, uint16_t value);
 static float calculate_slope(int8_t sensor_index);
 static uint8_t find_child(uint8_t target_id);
 static void add_child(uint8_t child_id);
+
 
 PROCESS_THREAD(computation_node_process, ev, data)
 {
@@ -77,8 +77,7 @@ PROCESS_THREAD(discovery_process, ev, data)
   while(1) {
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&discovery_timer));
     send_discovery();
-    etimer_set(&discovery_timer, DISCOVERY_INTERVAL + 
-              (random_rand() % (DISCOVERY_INTERVAL/10)));
+    etimer_set(&discovery_timer, DISCOVERY_INTERVAL + (random_rand() % (DISCOVERY_INTERVAL/10)));
   }
   PROCESS_END();
 }
@@ -93,7 +92,7 @@ PROCESS_THREAD(valve_timer_process, ev, data)
     uint32_t now = clock_seconds();
     for(int i = 0; i < sensor_count; i++) {
       if(sensors[i].valve_open && (now - sensors[i].valve_open_time >= VALVE_DURATION)) {
-        send_command(sensors[i].sensor_id, 0); // Close valve
+        send_command(sensors[i].sensor_id, 0);
         sensors[i].valve_open = 0;
         LOG_INFO("Valve closed for sensor %u (timer expired)\n", sensors[i].sensor_id);
       }
@@ -122,12 +121,14 @@ PROCESS_THREAD(cleanup_process, ev, data)
   PROCESS_END();
 }
 
+
 static void send_message(uint8_t *data, uint16_t len, linkaddr_t *dest)
 {
   nullnet_buf = data;
   nullnet_len = len;
   NETSTACK_NETWORK.output(dest);
 }
+
 
 static void send_discovery(void)
 {
@@ -136,11 +137,11 @@ static void send_discovery(void)
   discovery_msg[1] = COMPUTATION_NODE_ID;
   discovery_msg[2] = hop_to_root;
   discovery_msg[3] = energy_level >> 8;
-  LOG_INFO("Sending discovery: type=%u, id=%u, hop=%u, energy=%u\n",
-         discovery_msg[0], discovery_msg[1], discovery_msg[2], discovery_msg[3]);
+  LOG_INFO("Sending discovery: type=%u, id=%u, hop=%u, energy=%u\n", discovery_msg[0], discovery_msg[1], discovery_msg[2], discovery_msg[3]);
   send_message(discovery_msg, sizeof(discovery_msg), NULL);
   LOG_INFO("Sent discovery message\n");
 }
+
 
 static void forward_data(const uint8_t *data, uint16_t len, uint8_t treated)
 {
@@ -153,6 +154,7 @@ static void forward_data(const uint8_t *data, uint16_t len, uint8_t treated)
   send_message(data_msg, len, &parent_addr);
   LOG_INFO("Forwarded data to %u, len: %u\n", parent_addr.u8[0], len);
 }
+
 
 static void forward_command(const uint8_t *data, uint16_t len, uint8_t dest)
 {
@@ -188,9 +190,8 @@ static void send_command(uint8_t sensor_id, uint8_t command)
 static void add_child(uint8_t child_id)
 {
   for(int i = 0; i < child_count; i++) {
-    if(children[i] == child_id) return; // Already a child
+    if(children[i] == child_id) return;
   }
-  
   if(child_count < MAX_CHILDREN) {
     children[child_count++] = child_id;
     LOG_INFO("Added child %u\n", child_id);
@@ -199,26 +200,20 @@ static void add_child(uint8_t child_id)
 
 static uint8_t find_child(uint8_t target_id)
 {
-  // Check if target is a direct child
   for(int i = 0; i < child_count; i++) {
     if(children[i] == target_id) {
       return target_id;
     }
   }
-  
-  // Check if we know which sensor is a direct child
   for(int i = 0; i < sensor_count; i++) {
     if(sensors[i].sensor_id == target_id && sensors[i].active && sensors[i].is_direct_child) {
       return target_id;
     }
   }
-  
-  // If not found, forward to parent
   return parent_id;
 }
 
-static void receive_callback(const void *data, uint16_t len, 
-                            const linkaddr_t *src, const linkaddr_t *dest)
+static void receive_callback(const void *data, uint16_t len, const linkaddr_t *src, const linkaddr_t *dest)
 {
   if(len == 0) return;
 
@@ -236,38 +231,32 @@ static void receive_callback(const void *data, uint16_t len,
   }
   LOG_INFO("Message type: %u\n", msg_type);
   switch(msg_type) {
-    case 1: /* Discovery message */
+    case 1:
       if(len >= 4) {
         uint8_t source_id = msg[1];
         uint8_t hop_count = msg[2];
         uint8_t energy = msg[3];
-        LOG_INFO("Discovery details: source=%u, hop_count=%u, energy=%u, my_hop=%u\n", 
-                 source_id, hop_count, energy, hop_to_root);
+        LOG_INFO("Discovery details: source=%u, hop_count=%u, energy=%u, my_hop=%u\n", source_id, hop_count, energy, hop_to_root);
         if(hop_count < hop_to_root || 
            (hop_count == hop_to_root && energy > (energy_level >> 8))) {
-          LOG_INFO("Better parent found! Old: %u (hop %u), New: %u (hop %u)\n",
-                   parent_id, hop_to_root, source_id, hop_count + 1);
+          LOG_INFO("Better parent found! Old: %u (hop %u), New: %u (hop %u)\n", parent_id, hop_to_root, source_id, hop_count + 1);
           parent_id = source_id;
           hop_to_root = hop_count + 1;
-          LOG_INFO("Selected new parent %u (hop count: %u)\n", 
-                   parent_id, hop_to_root);
+          LOG_INFO("Selected new parent %u (hop count: %u)\n", parent_id, hop_to_root);
         } else {
-          LOG_INFO("Not a better parent. Current: %u (hop %u)\n", 
-                   parent_id, hop_to_root);
+          LOG_INFO("Not a better parent. Current: %u (hop %u)\n", parent_id, hop_to_root);
         }
         
-        // If this is from a child, add to child list
+       
         if(hop_count > hop_to_root) {
           add_child(source_id);
         }
       }
       break;
-    case 3: /* Data message */
+    case 3:
       if(len >= 6) {
         uint8_t source_id = msg[1];
         uint16_t value = (msg[4] << 8) | msg[5];
-        
-        // Check if we should handle this sensor
         if(sensor_count < MAX_SENSOR_NODES || find_sensor(source_id) >= 0) {
           int8_t sensor_index = find_sensor(source_id);
           if(sensor_index == -1) {
@@ -278,10 +267,9 @@ static void receive_callback(const void *data, uint16_t len,
           LOG_INFO("Received reading %u from sensor %u\n", value, source_id);
           if(sensors[sensor_index].count >= 2) {
             float slope = calculate_slope(sensor_index);
-            LOG_INFO("Calculated slope for sensor %u: %d.%02u\n", 
-                    source_id, (int)slope, (unsigned int)((slope - (int)slope) * 100));
+            LOG_INFO("Calculated slope for sensor %u: %d.%02u\n", source_id, (int)slope, (unsigned int)((slope - (int)slope) * 100));
             if(slope > SLOPE_THRESHOLD && !sensors[sensor_index].valve_open) {
-              send_command(source_id, 1); /* Open valve */
+              send_command(source_id, 1);
               sensors[sensor_index].valve_open = 1;
               sensors[sensor_index].valve_open_time = clock_seconds();
               LOG_INFO("Slope exceeds threshold, opening valve for sensor %u\n", source_id);
@@ -289,7 +277,6 @@ static void receive_callback(const void *data, uint16_t len,
             forward_data(msg, len, 1);
           }
         } else {
-          // At capacity, forward to parent
           if(parent_id != 0xFF) {
             forward_data(msg, len, 0);
             LOG_INFO("At capacity, forwarded data from sensor %u\n", source_id);
@@ -297,20 +284,18 @@ static void receive_callback(const void *data, uint16_t len,
         }
       }
       break;
-    case 4: { // Command message
+    case 4: {
       uint8_t target_id = msg[1];
       if(target_id == node_id) {
-        // Should not happen for computation node
         LOG_INFO("Received command for self, ignoring\n");
       } else {
-        // Forward the command toward the target
         uint8_t child = find_child(target_id);
         if(child != 0xFF) {
           forward_command(msg, len, child);
           LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, child);
         } else {
-          // Not a child, broadcast to all children
           send_message(msg, len, NULL);
+          LOG_INFO("Broadcast command for sensor %u\n", target_id, child);
         }
       }
       break;
