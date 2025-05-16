@@ -1,4 +1,5 @@
-CONTIKI = /home/yonyc/Documents/ucl/contiki-ng
+include .env
+
 PROJECT_CONF_PATH = ./project-conf.h
 
 # Define the project name
