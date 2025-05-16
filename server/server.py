@@ -12,7 +12,7 @@ from datetime import datetime
 # Configuration
 MAX_SENSOR_READINGS = 30
 SLOPE_THRESHOLD = 5.0
-VALVE_DURATION = 600  # 10 minutes in seconds
+VALVE_DURATION = 5 #600  # 10 minutes
 
 class SensorData:
     def __init__(self, sensor_id):

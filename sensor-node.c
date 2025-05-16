@@ -18,7 +18,7 @@
 #define VALVE_DURATION 60 // 1 minute
 #define MAX_CHILDREN 10
 
-static uint16_t parent_id = 0xFFFF;
+static uint8_t parent_id = 0xFF;
 static uint8_t hop_to_root = 0xFF;
 static uint8_t children[MAX_CHILDREN];
 static uint8_t child_count = 0;
@@ -37,7 +37,7 @@ static void receive_callback(const void *data, uint16_t len,
                              const linkaddr_t *src, const linkaddr_t *dest);
 static uint16_t generate_sensor_data(void);
 static void add_child(uint8_t child_id);
-static uint8_t find_next_hop(uint8_t target_id);
+static uint8_t find_child(uint8_t target_id);
 
 PROCESS_THREAD(sensor_node_process, ev, data)
 {
@@ -134,7 +134,7 @@ static void add_child(uint8_t child_id)
   }
 }
 
-static uint8_t find_next_hop(uint8_t target_id)
+static uint8_t find_child(uint8_t target_id)
 {
   // Check if target is a direct child
   for (int i = 0; i < child_count; i++)
@@ -145,8 +145,14 @@ static uint8_t find_next_hop(uint8_t target_id)
     }
   }
 
-  // If not found, forward to parent
-  return parent_id;
+  return 0xFF;
+}
+
+static void send_message(uint8_t *data, uint16_t len, linkaddr_t *dest)
+{
+  nullnet_buf = data;
+  nullnet_len = len;
+  NETSTACK_NETWORK.output(dest);
 }
 
 static void send_discovery(void)
@@ -166,31 +172,13 @@ static void send_discovery(void)
   LOG_INFO("Sending discovery: id=%u, hop=%u, energy=%u\n",
            discovery_msg[1], discovery_msg[2], discovery_msg[3]);
 
-  nullnet_buf = discovery_msg;
-  nullnet_len = sizeof(discovery_msg);
-  NETSTACK_NETWORK.output(NULL);
+  send_message(discovery_msg, sizeof(discovery_msg), NULL);
 
   LOG_INFO("Sent discovery message\n");
 }
 
-static void write_output(uint8_t *data, uint16_t len, linkaddr_t *dest)
-{
 
-  nullnet_buf = data;
-  nullnet_len = len;
-  NETSTACK_NETWORK.output(dest);
-}
 
-static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest)
-{
-  linkaddr_t parent_addr;
-  parent_addr.u8[0] = parent_id;
-  parent_addr.u8[1] = 0;
-  static uint8_t data_msg[6];
-  memcpy(data_msg, data, len);
-  write_output(data_msg, len, &parent_addr);
-  LOG_INFO("Forwarded message to %u, len: %u\n", parent_addr.u8[0], len);
-}
 
 static void send_data(uint16_t value)
 {
@@ -204,8 +192,29 @@ static void send_data(uint16_t value)
   data_msg[3] = 0;
   data_msg[4] = value >> 8;
   data_msg[5] = value & 0xFF;
-  write_output(data_msg, sizeof(data_msg), &parent_addr);
-  
+  send_message(data_msg, sizeof(data_msg), &parent_addr);
+}
+
+static void forward_data(const uint8_t *data, uint16_t len)
+{
+  linkaddr_t parent_addr;
+  parent_addr.u8[0] = parent_id;
+  parent_addr.u8[1] = 0;
+  static uint8_t data_msg[6];
+  memcpy(data_msg, data, len);
+  send_message(data_msg, len, &parent_addr);
+  LOG_INFO("Forwarded data to %u, len: %u\n", parent_addr.u8[0], len);
+}
+
+static void forward_command(const uint8_t *data, uint16_t len, uint8_t dest)
+{
+  linkaddr_t child_addr;
+  child_addr.u8[0] = dest;
+  child_addr.u8[1] = 0;
+  static uint8_t cmd_msg[4];
+  memcpy(cmd_msg, data, len);
+  send_message(cmd_msg, len, &child_addr);
+  LOG_INFO("Forwarded command to %u, len: %u\n", child_addr.u8[0], len);
 }
 
 static void receive_callback(const void *data, uint16_t len,
@@ -229,7 +238,7 @@ static void receive_callback(const void *data, uint16_t len,
   }
 
   // Print raw data for debugging
-  printf("DATA ");
+  printf("Message: ");
   for (int i = 0; i < len; i++)
   {
     printf("%02x ", ((uint8_t *)data)[i]);
@@ -287,9 +296,9 @@ static void receive_callback(const void *data, uint16_t len,
       uint8_t source_id = msg[1];
       uint16_t value = (msg[4] << 8) | msg[5];
       LOG_INFO("Received data from sensor %u: %u\n", source_id, value);
-      if (parent_id != 0xFFFF)
+      if (parent_id != 0xFF)
       {
-        forward_message(msg, len, parent_id);
+        forward_data(msg, len);
         // send_data(value);
       }
       else
@@ -299,13 +308,17 @@ static void receive_callback(const void *data, uint16_t len,
     }
     break;
   case 4: // Command
+    printf("command received from %u\n", src->u8[0]);
+    printf("command received for %u\n", msg[1]);
     if (len >= 4)
     {
       uint8_t target_id = msg[1];
       if (target_id == SENSOR_NODE_ID)
       {
+        printf("command for me\n");
         // Command is for me
         uint8_t command = msg[2];
+        printf("command %u\n", command);
         if (command == 1)
         {
           leds_on(LEDS_GREEN);
@@ -322,17 +335,14 @@ static void receive_callback(const void *data, uint16_t len,
       else
       {
         // Forward the command to the appropriate child
-        uint8_t next_hop = find_next_hop(target_id);
-        if (next_hop != 0xFF)
+        uint8_t child = find_child(target_id);
+        if (child != 0xFF)
         {
-          forward_message(msg, len, next_hop);
-          LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, next_hop);
-        }
-        else if (parent_id != 0xFFFF)
-        {
-          // If we don't know how to route, send to parent as fallback
-          forward_message(msg, len, parent_id);
-          LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
+          forward_command(msg, len, child);
+          printf("command forwarded for %u to %u\n", target_id, child);
+          LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, child);
+        } else {
+          printf("command not forwarded for %u, no child found\n", target_id);
         }
       }
     }

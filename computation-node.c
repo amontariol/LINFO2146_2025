@@ -30,7 +30,7 @@ typedef struct {
   uint8_t is_direct_child;
 } sensor_data_t;
 
-static uint16_t parent_id = 0xFFFF;
+static uint8_t parent_id = 0xFF;
 static uint8_t hop_to_root = 0xFF;
 static uint16_t energy_level = 1000;
 static sensor_data_t sensors[MAX_SENSOR_NODES];
@@ -45,7 +45,8 @@ PROCESS(cleanup_process, "Cleanup Process");
 AUTOSTART_PROCESSES(&computation_node_process);
 
 static void send_discovery(void);
-static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest);
+static void forward_data(const uint8_t *data, uint16_t len, uint8_t treated);
+static void forward_command(const uint8_t *data, uint16_t len, uint8_t dest);
 static void send_command(uint8_t sensor_id, uint8_t command);
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest);
@@ -53,7 +54,7 @@ static int8_t find_sensor(uint8_t sensor_id);
 static int8_t add_sensor(uint8_t sensor_id, uint8_t is_direct_child);
 static void add_reading(int8_t index, uint16_t value);
 static float calculate_slope(int8_t sensor_index);
-static uint8_t find_next_hop(uint8_t target_id);
+static uint8_t find_child(uint8_t target_id);
 static void add_child(uint8_t child_id);
 
 PROCESS_THREAD(computation_node_process, ev, data)
@@ -121,6 +122,13 @@ PROCESS_THREAD(cleanup_process, ev, data)
   PROCESS_END();
 }
 
+static void send_message(uint8_t *data, uint16_t len, linkaddr_t *dest)
+{
+  nullnet_buf = data;
+  nullnet_len = len;
+  NETSTACK_NETWORK.output(dest);
+}
+
 static void send_discovery(void)
 {
   static uint8_t discovery_msg[4];
@@ -130,21 +138,31 @@ static void send_discovery(void)
   discovery_msg[3] = energy_level >> 8;
   LOG_INFO("Sending discovery: type=%u, id=%u, hop=%u, energy=%u\n",
          discovery_msg[0], discovery_msg[1], discovery_msg[2], discovery_msg[3]);
-  nullnet_buf = discovery_msg;
-  nullnet_len = sizeof(discovery_msg);
-  NETSTACK_NETWORK.output(NULL);
+  send_message(discovery_msg, sizeof(discovery_msg), NULL);
   LOG_INFO("Sent discovery message\n");
 }
 
-static void forward_message(const uint8_t *data, uint16_t len, uint8_t dest)
+static void forward_data(const uint8_t *data, uint16_t len, uint8_t treated)
 {
-  linkaddr_t dest_addr;
-  dest_addr.u8[0] = dest;
-  dest_addr.u8[1] = 0;
-  nullnet_buf = (uint8_t *)data;
-  nullnet_len = len;
-  NETSTACK_NETWORK.output(&dest_addr);
-  LOG_INFO("Forwarded message to %u\n", dest_addr.u8[0]);
+  linkaddr_t parent_addr;
+  parent_addr.u8[0] = parent_id;
+  parent_addr.u8[1] = 0;
+  static uint8_t data_msg[6];
+  memcpy(data_msg, data, len);
+  data_msg[3] = treated;
+  send_message(data_msg, len, &parent_addr);
+  LOG_INFO("Forwarded data to %u, len: %u\n", parent_addr.u8[0], len);
+}
+
+static void forward_command(const uint8_t *data, uint16_t len, uint8_t dest)
+{
+  linkaddr_t child_addr;
+  child_addr.u8[0] = dest;
+  child_addr.u8[1] = 0;
+  static uint8_t cmd_msg[4];
+  memcpy(cmd_msg, data, len);
+  send_message(cmd_msg, len, &child_addr);
+  LOG_INFO("Forwarded command to %u, len: %u\n", child_addr.u8[0], len);
 }
 
 static void send_command(uint8_t sensor_id, uint8_t command)
@@ -155,28 +173,15 @@ static void send_command(uint8_t sensor_id, uint8_t command)
   cmd_msg[2] = command;
   cmd_msg[3] = 0;
 
-  uint8_t next_hop = find_next_hop(sensor_id);
-  if(next_hop != 0xFF) {
+  uint8_t child = find_child(sensor_id);
+  if(child != 0xFF) {
     linkaddr_t dest_addr;
-    dest_addr.u8[0] = next_hop;
+    dest_addr.u8[0] = child;
     dest_addr.u8[1] = 0;
-    nullnet_buf = cmd_msg;
-    nullnet_len = sizeof(cmd_msg);
-    NETSTACK_NETWORK.output(&dest_addr);
-    LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+    send_message(cmd_msg, sizeof(cmd_msg), &dest_addr);
+    LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, child);
   } else {
-    // If we don't know the route, try via parent
-    if(parent_id != 0xFFFF) {
-      linkaddr_t parent_addr;
-      parent_addr.u8[0] = parent_id;
-      parent_addr.u8[1] = 0;
-      nullnet_buf = cmd_msg;
-      nullnet_len = sizeof(cmd_msg);
-      NETSTACK_NETWORK.output(&parent_addr);
-      LOG_INFO("Sent command %u to sensor %u via parent %u\n", command, sensor_id, parent_id);
-    } else {
-      LOG_INFO("Cannot send command to sensor %u: no route\n", sensor_id);
-    }
+    LOG_INFO("Cannot send command: sensor %u is not my child\n", sensor_id);
   }
 }
 
@@ -192,7 +197,7 @@ static void add_child(uint8_t child_id)
   }
 }
 
-static uint8_t find_next_hop(uint8_t target_id)
+static uint8_t find_child(uint8_t target_id)
 {
   // Check if target is a direct child
   for(int i = 0; i < child_count; i++) {
@@ -281,11 +286,12 @@ static void receive_callback(const void *data, uint16_t len,
               sensors[sensor_index].valve_open_time = clock_seconds();
               LOG_INFO("Slope exceeds threshold, opening valve for sensor %u\n", source_id);
             }
+            forward_data(msg, len, 1);
           }
         } else {
           // At capacity, forward to parent
-          if(parent_id != 0xFFFF) {
-            forward_message(msg, len, parent_id);
+          if(parent_id != 0xFF) {
+            forward_data(msg, len, 0);
             LOG_INFO("At capacity, forwarded data from sensor %u\n", source_id);
           }
         }
@@ -298,24 +304,18 @@ static void receive_callback(const void *data, uint16_t len,
         LOG_INFO("Received command for self, ignoring\n");
       } else {
         // Forward the command toward the target
-        uint8_t next_hop = find_next_hop(target_id);
-        if(next_hop != 0xFF) {
-          forward_message(msg, len, next_hop);
-          LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, next_hop);
+        uint8_t child = find_child(target_id);
+        if(child != 0xFF) {
+          forward_command(msg, len, child);
+          LOG_INFO("Forwarded command for sensor %u to %u\n", target_id, child);
         } else {
-          // If we don't know the route, try via parent
-          if(parent_id != 0xFFFF) {
-            forward_message(msg, len, parent_id);
-            LOG_INFO("Forwarded command for sensor %u to parent %u (fallback)\n", target_id, parent_id);
-          }
+          // Not a child, broadcast to all children
+          send_message(msg, len, NULL);
         }
       }
       break;
     }
     default:
-      if(parent_id != 0xFFFF) {
-        forward_message(msg, len, parent_id);
-      }
       break;
   }
 }

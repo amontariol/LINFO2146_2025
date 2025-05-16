@@ -29,7 +29,7 @@ static void receive_callback(const void *data, uint16_t len,
                             const linkaddr_t *src, const linkaddr_t *dest);
 static void process_serial_input(char *line);
 static void add_child(uint8_t child_id);
-static uint8_t find_next_hop(uint8_t target_id);
+static uint8_t find_child(uint8_t target_id);
 
 PROCESS_THREAD(border_router_process, ev, data)
 {
@@ -108,17 +108,25 @@ static void add_child(uint8_t child_id)
   }
 }
 
-static uint8_t find_next_hop(uint8_t target_id)
+static uint8_t find_child(uint8_t target_id)
 {
   // Check if target is a direct child
-  for(int i = 0; i < child_count; i++) {
-    if(children[i] == target_id) {
+  for (int i = 0; i < child_count; i++)
+  {
+    if (children[i] == target_id)
+    {
       return target_id;
     }
   }
-  
-  // If not found, we don't know how to route to this node
+
   return 0xFF;
+}
+
+static void send_message(uint8_t *data, uint16_t len, linkaddr_t *dest)
+{
+  nullnet_buf = data;
+  nullnet_len = len;
+  NETSTACK_NETWORK.output(dest);
 }
 
 static void process_serial_input(char *line)
@@ -137,28 +145,26 @@ static void process_serial_input(char *line)
     
     // Create command message
     static uint8_t cmd_msg[4];
-    cmd_msg[0] = 4; // Command type
+    cmd_msg[0] = 4;
     cmd_msg[1] = sensor_id;
     cmd_msg[2] = command;
     cmd_msg[3] = 0;
     
     // Find next hop to target
-    uint8_t next_hop = find_next_hop(sensor_id);
-    if(next_hop == 0xFF) {
+    uint8_t child = find_child(sensor_id);
+    if(child == 0xFF) {
       // If we don't know the route, broadcast
       LOG_INFO("Unknown route to sensor %u, broadcasting command\n", sensor_id);
-      nullnet_buf = cmd_msg;
-      nullnet_len = sizeof(cmd_msg);
-      NETSTACK_NETWORK.output(NULL);
+      // Broadcast to all children
+      send_message(cmd_msg, sizeof(cmd_msg), NULL);
     } else {
       // Send to next hop
-      linkaddr_t next_addr;
-      next_addr.u8[0] = next_hop;
-      next_addr.u8[1] = 0;
-      nullnet_buf = cmd_msg;
-      nullnet_len = sizeof(cmd_msg);
-      NETSTACK_NETWORK.output(&next_addr);
-      LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, next_hop);
+      linkaddr_t child_addr;
+      child_addr.u8[0] = child;
+      child_addr.u8[1] = 0;
+      // Send command to child
+      send_message(cmd_msg, sizeof(cmd_msg), &child_addr);
+      LOG_INFO("Sent command %u to sensor %u via %u\n", command, sensor_id, child);
     }
   }
 }
@@ -166,13 +172,14 @@ static void process_serial_input(char *line)
 static void receive_callback(const void *data, uint16_t len, 
                             const linkaddr_t *src, const linkaddr_t *dest)
 {
-
+  /*
   // Print raw data for debugging
   printf("DATA ");
   for(int i = 0; i < len; i++) {
     printf("%02x ", ((uint8_t *)data)[i]);
   }
   printf("\n");
+  */
   if(len == 0) return;
   if(src->u8[0] == node_id) return;
 
@@ -207,20 +214,16 @@ static void receive_callback(const void *data, uint16_t len,
         
         if(target_id != BORDER_ROUTER_ID) {
           // Forward command to target
-          uint8_t next_hop = find_next_hop(target_id);
-          if(next_hop != 0xFF) {
-            linkaddr_t next_addr;
-            next_addr.u8[0] = next_hop;
-            next_addr.u8[1] = 0;
-            nullnet_buf = msg;
-            nullnet_len = len;
-            NETSTACK_NETWORK.output(&next_addr);
-            LOG_INFO("Forwarded command %u to sensor %u via %u\n", command, target_id, next_hop);
+          uint8_t child = find_child(target_id);
+          if(child != 0xFF) {
+            linkaddr_t child_addr;
+            child_addr.u8[0] = child;
+            child_addr.u8[1] = 0;
+            send_message(msg, len, &child_addr);
+            LOG_INFO("Forwarded command %u to sensor %u via %u\n", command, target_id, child);
           } else {
             // If we don't know the route, broadcast
-            nullnet_buf = msg;
-            nullnet_len = len;
-            NETSTACK_NETWORK.output(NULL);
+            send_message(msg, len, NULL);
             LOG_INFO("Unknown route to sensor %u, broadcasting command\n", target_id);
           }
         }
